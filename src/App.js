@@ -14,7 +14,7 @@ function App() {
           <Route path="/geo" element={<Geo />} />
           <Route path="/loc" element={<Loc />} />
           <Route path="/map" element={<Map />} />
-          <Route path="/" element={<Geo />} />
+          <Route path="/" element={<Loc />} />
 
         </Routes>
       </div>

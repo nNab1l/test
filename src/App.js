@@ -14,7 +14,8 @@ function App() {
           <Route path="/geo" element={<Geo />} />
           <Route path="/loc" element={<Loc />} />
           <Route path="/map" element={<Map />} />
-          <Route path="/" element={<h1>Welcome to the App!</h1>} />
+          <Route path="/" element={<Geo />} />
+
         </Routes>
       </div>
     </Router>

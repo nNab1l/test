@@ -7,18 +7,54 @@ export default function Geo() {
   const [imuActive, setImuActive] = useState(false);
   const [log, setLog] = useState([]);
   const lastEvent = useRef(Date.now());
+  const [permissionRequested, setPermissionRequested] = useState(false);
+  const [permissionError, setPermissionError] = useState("");
+
+  const requestIMU = async () => {
+    try {
+      let granted = true;
+      let motionResult = "granted";
+      let orientationResult = "granted";
+
+      if (
+        typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function"
+      ) {
+        motionResult = await DeviceMotionEvent.requestPermission();
+        granted = granted && (motionResult === "granted");
+      }
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        orientationResult = await DeviceOrientationEvent.requestPermission();
+        granted = granted && (orientationResult === "granted");
+      }
+      setPermissionRequested(true);
+      if (!granted) {
+        setPermissionError(
+          `IMU permission denied. DeviceMotion: ${motionResult}, DeviceOrientation: ${orientationResult}`
+        );
+        alert(
+          "IMU permission denied. Please allow access to device sensors in your browser settings."
+        );
+      } else {
+        setPermissionError("");
+      }
+    } catch (e) {
+      setPermissionRequested(true);
+      setPermissionError("IMU permission error: " + e);
+      alert("IMU permission error: " + e);
+    }
+  };
 
   useEffect(() => {
-    let orientationSeen = false;
-    let motionSeen = false;
-
     const handleOrientation = (e) => {
       setRotation({
         alpha: e.alpha || 0,
         beta: e.beta || 0,
         gamma: e.gamma || 0,
       });
-      orientationSeen = true;
       lastEvent.current = Date.now();
       setImuActive(true);
 
@@ -39,7 +75,6 @@ export default function Geo() {
       const az = e.accelerationIncludingGravity?.z || 0;
       velocity.current.x += ax * 0.5;
       velocity.current.y += ay * 0.5;
-      motionSeen = true;
       lastEvent.current = Date.now();
       setImuActive(true);
 
@@ -52,8 +87,10 @@ export default function Geo() {
       ]);
     };
 
-    window.addEventListener("deviceorientation", handleOrientation, true);
-    window.addEventListener("devicemotion", handleMotion, true);
+    if (permissionRequested || typeof DeviceMotionEvent === "undefined" || typeof DeviceMotionEvent.requestPermission !== "function") {
+      window.addEventListener("deviceorientation", handleOrientation, true);
+      window.addEventListener("devicemotion", handleMotion, true);
+    }
 
     let animationId;
     const update = () => {
@@ -86,7 +123,7 @@ export default function Geo() {
       window.removeEventListener("devicemotion", handleMotion, true);
       cancelAnimationFrame(animationId);
     };
-  }, [pos.x, pos.y]);
+  }, [permissionRequested, pos.x, pos.y]);
 
   const info = [
     `IMU active: ${imuActive ? "YES" : "NO (no events in 2s)"}`,
@@ -98,7 +135,7 @@ export default function Geo() {
     `Current velocity: x=${velocity.current.x.toFixed(2)}, y=${velocity.current.y.toFixed(2)}`
   ];
 
- 
+
   return (
     <div
       style={{
@@ -110,6 +147,51 @@ export default function Geo() {
         touchAction: "none",
       }}
     >
+      {typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function" &&
+        !permissionRequested && (
+          <button
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              zIndex: 9999,
+              padding: "1em",
+              fontSize: 16,
+              borderRadius: 8,
+              background: "#facc15",
+              color: "#18181b",
+              border: "none",
+              fontWeight: 600,
+              boxShadow: "0 2px 8px #0003",
+              cursor: "pointer",
+            }}
+            onClick={requestIMU}
+          >
+            Enable IMU Sensors
+          </button>
+        )}
+
+      {permissionError && (
+        <div
+          style={{
+            position: "absolute",
+            top: 80,
+            right: 20,
+            zIndex: 9999,
+            background: "#dc2626",
+            color: "#fff",
+            padding: "1em",
+            borderRadius: 8,
+            maxWidth: 350,
+            fontSize: 15,
+            fontWeight: 500,
+          }}
+        >
+          {permissionError}
+        </div>
+      )}
+
       <div
         style={{
           position: "absolute",

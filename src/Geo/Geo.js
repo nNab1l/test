@@ -1,48 +1,199 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, useRef, useState } from "react";
 
-export default function IMURotationDemo() {
+export default function Geo() {
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const velocity = useRef({ x: 0, y: 0 });
   const [rotation, setRotation] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const [imuActive, setImuActive] = useState(false);
   const [log, setLog] = useState([]);
+  const lastEvent = useRef(Date.now());
 
   useEffect(() => {
-    const handleOrientation = (event) => {
-      const { alpha, beta, gamma } = event;
-      setRotation({ alpha, beta, gamma });
+    let orientationSeen = false;
+    let motionSeen = false;
 
-      setLog(prev => [
-        `Alpha: ${alpha.toFixed(2)}`,
-        `Beta: ${beta.toFixed(2)}`,
-        `Gamma: ${gamma.toFixed(2)}`,
-        `Timestamp: ${new Date().toLocaleTimeString()}`,
-        ...prev.slice(0, 10),
+    const handleOrientation = (e) => {
+      setRotation({
+        alpha: e.alpha || 0,
+        beta: e.beta || 0,
+        gamma: e.gamma || 0,
+      });
+      orientationSeen = true;
+      lastEvent.current = Date.now();
+      setImuActive(true);
+
+      setLog((l) => [
+        `[${new Date().toLocaleTimeString()}] deviceorientation event`,
+        `alpha (compass): ${e.alpha?.toFixed(1)}`,
+        `beta (front/back): ${e.beta?.toFixed(1)}`,
+        `gamma (left/right): ${e.gamma?.toFixed(1)}`,
+        `Dot position: x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)}`,
+        `Velocity: x=${velocity.current.x.toFixed(2)} y=${velocity.current.y.toFixed(2)}`,
+        ...l.slice(0, 15),
       ]);
     };
 
-    window.addEventListener('deviceorientation', handleOrientation);
+    const handleMotion = (e) => {
+      const ax = e.accelerationIncludingGravity?.x || 0;
+      const ay = e.accelerationIncludingGravity?.y || 0;
+      const az = e.accelerationIncludingGravity?.z || 0;
+      velocity.current.x += ax * 0.5;
+      velocity.current.y += ay * 0.5;
+      motionSeen = true;
+      lastEvent.current = Date.now();
+      setImuActive(true);
+
+      setLog((l) => [
+        `[${new Date().toLocaleTimeString()}] devicemotion event`,
+        `accelerationIncludingGravity: x=${ax.toFixed(2)} y=${ay.toFixed(2)} z=${az.toFixed(2)}`,
+        `Dot position: x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)}`,
+        `Velocity: x=${velocity.current.x.toFixed(2)} y=${velocity.current.y.toFixed(2)}`,
+        ...l.slice(0, 15),
+      ]);
+    };
+
+    window.addEventListener("deviceorientation", handleOrientation, true);
+    window.addEventListener("devicemotion", handleMotion, true);
+
+    let animationId;
+    const update = () => {
+      setPos((prev) => {
+        let x = prev.x + velocity.current.x;
+        let y = prev.y + velocity.current.y;
+        velocity.current.x *= 0.96;
+        velocity.current.y *= 0.96;
+        const maxX = window.innerWidth / 2 - 20;
+        const maxY = window.innerHeight / 2 - 20;
+        x = Math.max(-maxX, Math.min(maxX, x));
+        y = Math.max(-maxY, Math.min(maxY, y));
+        return { x, y };
+      });
+
+      if (Date.now() - lastEvent.current > 2000) setImuActive(false);
+
+      animationId = requestAnimationFrame(update);
+    };
+    update();
+
+    setLog((l) => [
+      `[${new Date().toLocaleTimeString()}] Component mounted`,
+      `IMU status: Waiting for activity...`,
+      ...l,
+    ]);
 
     return () => {
-      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener("deviceorientation", handleOrientation, true);
+      window.removeEventListener("devicemotion", handleMotion, true);
+      cancelAnimationFrame(animationId);
     };
-  }, []);
+  }, [pos.x, pos.y]);
 
+  const info = [
+    `IMU active: ${imuActive ? "YES" : "NO (no events in 2s)"}`,
+    `Current rotation:`,
+    ` - alpha (compass): ${rotation.alpha.toFixed(1)}°`,
+    ` - beta (front/back): ${rotation.beta.toFixed(1)}°`,
+    ` - gamma (left/right): ${rotation.gamma.toFixed(1)}°`,
+    `Current dot position: x=${pos.x.toFixed(1)}, y=${pos.y.toFixed(1)}`,
+    `Current velocity: x=${velocity.current.x.toFixed(2)}, y=${velocity.current.y.toFixed(2)}`
+  ];
+
+ 
   return (
-    <div className="min-h-screen bg-black text-white p-4 flex flex-col items-center justify-center gap-8">
-      <motion.div
-        className="w-40 h-40 bg-purple-500 rounded-xl shadow-lg"
-        animate={{
-          rotateX: rotation.beta,
-          rotateY: rotation.gamma,
-          rotateZ: rotation.alpha,
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "#18181b",
+        overflow: "hidden",
+        position: "relative",
+        touchAction: "none",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          width: 40,
+          height: 40,
+          transform: `translate(-50%, -50%) translate(${pos.x}px, ${pos.y}px)`,
+          zIndex: 1,
         }}
-        transition={{ type: 'spring', stiffness: 100, damping: 20 }}
-      />
+      >
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            background: "#38bdf8",
+            borderRadius: "50%",
+            boxShadow: "0 0 10px #06b6d4",
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              width: 0,
+              height: 0,
+              borderLeft: "6px solid transparent",
+              borderRight: "6px solid transparent",
+              borderBottom: "20px solid #facc15",
+              transform: `translate(-50%, -100%) rotate(${rotation.alpha}deg)`,
+              transformOrigin: "50% 100%",
+              transition: "transform 0.1s linear",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
+      </div>
 
-      <div className="w-full max-w-md bg-gray-900 p-4 rounded-xl text-sm overflow-auto h-60">
-        <h2 className="text-lg font-bold mb-2">IMU Debug Log</h2>
-        <ul className="list-disc pl-5 space-y-1">
-          {log.map((entry, idx) => (
-            <li key={idx}>{entry}</li>
+      <div
+        style={{
+          position: "absolute",
+          top: 14,
+          left: 14,
+          background: "#444",
+          color: "#fff",
+          padding: 12,
+          borderRadius: 8,
+          fontSize: 14,
+          opacity: 0.96,
+          maxWidth: 360,
+          lineHeight: 1.5,
+          boxShadow: "0 2px 8px #0004"
+        }}
+      >
+        <b>IMU Status & Position</b>
+        <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+          {info.map((l, i) => (
+            <li key={i}>{l}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div
+        style={{
+          position: "absolute",
+          bottom: 14,
+          left: 14,
+          background: "#222",
+          color: "#fff",
+          padding: 10,
+          borderRadius: 8,
+          fontSize: 13,
+          opacity: 0.85,
+          maxWidth: 370,
+          maxHeight: 240,
+          overflowY: "auto",
+        }}
+      >
+        <b>IMU Event Log</b>
+        <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+          {log.map((l, i) => (
+            <li key={i}>{l}</li>
           ))}
         </ul>
       </div>

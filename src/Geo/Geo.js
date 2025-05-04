@@ -3,12 +3,15 @@ import React, { useEffect, useRef, useState } from "react";
 export default function Geo() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const velocity = useRef({ x: 0, y: 0 });
-  const [rotation, setRotation] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const [rotation, setRotation] = useState({ alpha: 0 });
   const [imuActive, setImuActive] = useState(false);
   const [log, setLog] = useState([]);
   const lastEvent = useRef(Date.now());
   const [permissionRequested, setPermissionRequested] = useState(false);
   const [permissionError, setPermissionError] = useState("");
+
+  const stepThreshold = 1.2; // Threshold for acceleration spike to detect a step
+  const lastStepTime = useRef(Date.now());
 
   const requestIMU = async () => {
     try {
@@ -52,39 +55,36 @@ export default function Geo() {
     const handleOrientation = (e) => {
       setRotation({
         alpha: e.alpha || 0,
-        beta: e.beta || 0,
-        gamma: e.gamma || 0,
       });
       lastEvent.current = Date.now();
       setImuActive(true);
-
-      setLog((l) => [
-        `[${new Date().toLocaleTimeString()}] deviceorientation event`,
-        `alpha (compass): ${e.alpha?.toFixed(1)}`,
-        `beta (front/back): ${e.beta?.toFixed(1)}`,
-        `gamma (left/right): ${e.gamma?.toFixed(1)}`,
-        `Dot position: x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)}`,
-        `Velocity: x=${velocity.current.x.toFixed(2)} y=${velocity.current.y.toFixed(2)}`,
-        ...l.slice(0, 15),
-      ]);
     };
 
     const handleMotion = (e) => {
       const ax = e.accelerationIncludingGravity?.x || 0;
       const ay = e.accelerationIncludingGravity?.y || 0;
       const az = e.accelerationIncludingGravity?.z || 0;
-      velocity.current.x += ax * 0.5;
-      velocity.current.y += ay * 0.5;
+
+      const totalAcceleration = Math.sqrt(ax * ax + ay * ay + az * az);
+
+      // Detect step based on acceleration spikes
+      if (totalAcceleration > stepThreshold && Date.now() - lastStepTime.current > 300) {
+        lastStepTime.current = Date.now();
+
+        // Move forward in the direction of the current rotation (alpha)
+        const radians = (rotation.alpha * Math.PI) / 180;
+        velocity.current.x += Math.sin(radians) * 5; // Adjust step size
+        velocity.current.y -= Math.cos(radians) * 5; // Adjust step size
+
+        setLog((l) => [
+          `[${new Date().toLocaleTimeString()}] Step detected!`,
+          `Total Acceleration: ${totalAcceleration.toFixed(2)}`,
+          ...l.slice(0, 15),
+        ]);
+      }
+
       lastEvent.current = Date.now();
       setImuActive(true);
-
-      setLog((l) => [
-        `[${new Date().toLocaleTimeString()}] devicemotion event`,
-        `accelerationIncludingGravity: x=${ax.toFixed(2)} y=${ay.toFixed(2)} z=${az.toFixed(2)}`,
-        `Dot position: x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)}`,
-        `Velocity: x=${velocity.current.x.toFixed(2)} y=${velocity.current.y.toFixed(2)}`,
-        ...l.slice(0, 15),
-      ]);
     };
 
     if (permissionRequested || typeof DeviceMotionEvent === "undefined" || typeof DeviceMotionEvent.requestPermission !== "function") {
@@ -97,8 +97,8 @@ export default function Geo() {
       setPos((prev) => {
         let x = prev.x + velocity.current.x;
         let y = prev.y + velocity.current.y;
-        velocity.current.x *= 0.96;
-        velocity.current.y *= 0.96;
+        velocity.current.x *= 0.9; // Friction to slow down over time
+        velocity.current.y *= 0.9; // Friction to slow down over time
         const maxX = window.innerWidth / 2 - 20;
         const maxY = window.innerHeight / 2 - 20;
         x = Math.max(-maxX, Math.min(maxX, x));
@@ -112,29 +112,19 @@ export default function Geo() {
     };
     update();
 
-    setLog((l) => [
-      `[${new Date().toLocaleTimeString()}] Component mounted`,
-      `IMU status: Waiting for activity...`,
-      ...l,
-    ]);
-
     return () => {
       window.removeEventListener("deviceorientation", handleOrientation, true);
       window.removeEventListener("devicemotion", handleMotion, true);
       cancelAnimationFrame(animationId);
     };
-  }, [permissionRequested, pos.x, pos.y]);
+  }, [permissionRequested, rotation.alpha]);
 
   const info = [
     `IMU active: ${imuActive ? "YES" : "NO (no events in 2s)"}`,
-    `Current rotation:`,
-    ` - alpha (compass): ${rotation.alpha.toFixed(1)}°`,
-    ` - beta (front/back): ${rotation.beta.toFixed(1)}°`,
-    ` - gamma (left/right): ${rotation.gamma.toFixed(1)}°`,
+    `Current rotation: alpha (compass): ${rotation.alpha.toFixed(1)}°`,
     `Current dot position: x=${pos.x.toFixed(1)}, y=${pos.y.toFixed(1)}`,
     `Current velocity: x=${velocity.current.x.toFixed(2)}, y=${velocity.current.y.toFixed(2)}`
   ];
-
 
   return (
     <div
@@ -171,26 +161,6 @@ export default function Geo() {
             Enable IMU Sensors
           </button>
         )}
-
-      {permissionError && (
-        <div
-          style={{
-            position: "absolute",
-            top: 80,
-            right: 20,
-            zIndex: 9999,
-            background: "#dc2626",
-            color: "#fff",
-            padding: "1em",
-            borderRadius: 8,
-            maxWidth: 350,
-            fontSize: 15,
-            fontWeight: 500,
-          }}
-        >
-          {permissionError}
-        </div>
-      )}
 
       <div
         style={{
@@ -230,54 +200,6 @@ export default function Geo() {
             }}
           />
         </div>
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          top: 14,
-          left: 14,
-          background: "#444",
-          color: "#fff",
-          padding: 12,
-          borderRadius: 8,
-          fontSize: 14,
-          opacity: 0.96,
-          maxWidth: 360,
-          lineHeight: 1.5,
-          boxShadow: "0 2px 8px #0004"
-        }}
-      >
-        <b>IMU Status & Position</b>
-        <ul style={{ margin: 0, paddingInlineStart: 18 }}>
-          {info.map((l, i) => (
-            <li key={i}>{l}</li>
-          ))}
-        </ul>
-      </div>
-
-      <div
-        style={{
-          position: "absolute",
-          bottom: 14,
-          left: 14,
-          background: "#222",
-          color: "#fff",
-          padding: 10,
-          borderRadius: 8,
-          fontSize: 13,
-          opacity: 0.85,
-          maxWidth: 370,
-          maxHeight: 240,
-          overflowY: "auto",
-        }}
-      >
-        <b>IMU Event Log</b>
-        <ul style={{ margin: 0, paddingInlineStart: 18 }}>
-          {log.map((l, i) => (
-            <li key={i}>{l}</li>
-          ))}
-        </ul>
       </div>
     </div>
   );

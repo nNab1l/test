@@ -10,8 +10,10 @@ export default function Geo() {
   const [permissionRequested, setPermissionRequested] = useState(false);
   const [permissionError, setPermissionError] = useState("");
 
-  const stepThreshold = 1.2; // Threshold for acceleration spike to detect a step
+  const stepThreshold = 11; // Increased threshold for better step detection
+  const minStepInterval = 400; // Minimum time between steps in ms
   const lastStepTime = useRef(Date.now());
+  const lastAccel = useRef({ x: 0, y: 0, z: 0 });
 
   const requestIMU = async () => {
     try {
@@ -53,8 +55,10 @@ export default function Geo() {
 
   useEffect(() => {
     const handleOrientation = (e) => {
+      // Use absolute orientation (compass direction)
+      const compassHeading = e.webkitCompassHeading || 360 - e.alpha || 0;
       setRotation({
-        alpha: e.alpha || 0,
+        alpha: compassHeading,
       });
       lastEvent.current = Date.now();
       setImuActive(true);
@@ -65,20 +69,32 @@ export default function Geo() {
       const ay = e.accelerationIncludingGravity?.y || 0;
       const az = e.accelerationIncludingGravity?.z || 0;
 
-      const totalAcceleration = Math.sqrt(ax * ax + ay * ay + az * az);
+      // Calculate acceleration change
+      const deltaAx = ax - lastAccel.current.x;
+      const deltaAy = ay - lastAccel.current.y;
+      const deltaAz = az - lastAccel.current.z;
+      
+      // Update last acceleration values
+      lastAccel.current = { x: ax, y: ay, z: az };
 
-      // Detect step based on acceleration spikes
-      if (totalAcceleration > stepThreshold && Date.now() - lastStepTime.current > 300) {
+      // Calculate total acceleration change
+      const totalAccelChange = Math.sqrt(deltaAx * deltaAx + deltaAy * deltaAy + deltaAz * deltaAz);
+
+      // Detect step based on acceleration change
+      if (totalAccelChange > stepThreshold && 
+          Date.now() - lastStepTime.current > minStepInterval) {
         lastStepTime.current = Date.now();
 
-        // Move forward in the direction of the current rotation (alpha)
+        // Move forward in the direction of the compass heading
         const radians = (rotation.alpha * Math.PI) / 180;
-        velocity.current.x += Math.sin(radians) * 5; // Adjust step size
-        velocity.current.y -= Math.cos(radians) * 5; // Adjust step size
+        const stepSize = 3; // Reduced step size for more controlled movement
+        
+        velocity.current.x += Math.sin(radians) * stepSize;
+        velocity.current.y += Math.cos(radians) * stepSize;
 
         setLog((l) => [
           `[${new Date().toLocaleTimeString()}] Step detected!`,
-          `Total Acceleration: ${totalAcceleration.toFixed(2)}`,
+          `Acceleration change: ${totalAccelChange.toFixed(2)}`,
           ...l.slice(0, 15),
         ]);
       }

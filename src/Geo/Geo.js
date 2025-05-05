@@ -104,11 +104,20 @@ export default function Geo() {
       if (!e.accelerationIncludingGravity) return;
 
       // High-pass filter for vertical acceleration (z)
-      const alpha = 0.5; // even more responsive
+      const alpha = 0.9; // even more responsive
       if (typeof stepState.current.hpZ !== "number") stepState.current.hpZ = 0;
       if (typeof stepState.current.lastHpZ !== "number") stepState.current.lastHpZ = 0;
+
       const rawZ = e.accelerationIncludingGravity.z || 0;
-      const filteredZ = alpha * stepState.current.hpZ + (1 - alpha) * (rawZ - 9.81);
+
+      // Adaptive gravity compensation
+      if (!stepState.current.gravity) {
+        stepState.current.gravity = rawZ; // initial gravity value
+      } else {
+        stepState.current.gravity = 0.99 * stepState.current.gravity + 0.01 * rawZ; // running average
+      }
+
+      const filteredZ = alpha * stepState.current.hpZ + (1 - alpha) * (rawZ - stepState.current.gravity);
       stepState.current.hpZ = filteredZ;
 
       const now = Date.now();
@@ -116,7 +125,7 @@ export default function Geo() {
 
       // Log for debugging
       setLog((l) => [
-        `[${new Date().toLocaleTimeString()}] hpZ: ${filteredZ.toFixed(4)} rawZ: ${rawZ.toFixed(4)}`,
+        `[${new Date().toLocaleTimeString()}] hpZ: ${filteredZ.toFixed(4)} rawZ: ${rawZ.toFixed(4)} gravity: ${stepState.current.gravity.toFixed(4)}`,
         ...l.slice(0, 15),
       ]);
 
@@ -124,7 +133,7 @@ export default function Geo() {
       if (
         stepState.current.lastHpZ < 0 &&
         filteredZ >= 0 &&
-        Math.abs(filteredZ) > 0.005 && // ultra-low threshold
+        Math.abs(filteredZ) > 0.001 && // ultra-low threshold
         timeSinceLastStep > minStepInterval
       ) {
         // Step detected

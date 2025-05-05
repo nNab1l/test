@@ -13,18 +13,34 @@ export default function Geo() {
 
   const lastStepTime = useRef(Date.now());
 
-  const stepThreshold = 2.5; // Lowered threshold significantly
-  const minStepInterval = 250; // Keep same interval
-  const rotationSmoothing = 0.85; // Keep rotation smoothing since it works
-  const stepSize = 10; // Increased step size for more noticeable movement
+  // Adjusted constants for better step detection
+  const stepThreshold = 2.0; // Increased for more reliable step detection
+  const minStepInterval = 250; // Decreased for more responsive movement
+  const rotationSmoothing = 0.85;
+  const stepSize = 3; // Smaller steps for more realistic walking simulation
 
-  const rawAccel = useRef({ x: 0, y: 0, z: 0 });
-  const lastRawAccel = useRef({ x: 0, y: 0, z: 0 });
-
-  const peakDetection = useRef({
-    lastPeak: 0,
-    waiting: false,
+  // Add acceleration smoothing with smaller window for less delay
+  const accelFilter = useRef({
+    x: new Array(3).fill(0),
+    y: new Array(3).fill(0),
+    z: new Array(3).fill(0),
   });
+
+  // Track step state
+  const stepState = useRef({
+    lastStep: Date.now(),
+    isInStep: false,
+    lastMagnitude: 0,
+  });
+
+  const smoothAcceleration = (value, axis) => {
+    accelFilter.current[axis].shift();
+    accelFilter.current[axis].push(value);
+    return (
+      accelFilter.current[axis].reduce((a, b) => a + b) /
+      accelFilter.current[axis].length
+    );
+  };
 
   const requestIMU = async () => {
     try {
@@ -85,34 +101,50 @@ export default function Geo() {
     };
 
     const handleMotion = (e) => {
-      if (!e.acceleration) return;
+      if (!e.accelerationIncludingGravity) return;
 
-      const verticalAccel = Math.abs(e.acceleration.y);
+      // Use accelerationIncludingGravity for better step detection
+      const ax = smoothAcceleration(e.accelerationIncludingGravity.x, "x");
+      const ay = smoothAcceleration(e.accelerationIncludingGravity.y, "y");
+      const az = smoothAcceleration(e.accelerationIncludingGravity.z, "z");
 
+      // Focus on vertical movement for step detection
+      const verticalAccel = Math.abs(az - 9.81); // Remove gravity approximation
+
+      const now = Date.now();
+      const timeSinceLastStep = now - stepState.current.lastStep;
+
+      // Improved step detection logic
       if (
-        !peakDetection.current.waiting &&
+        !stepState.current.isInStep &&
         verticalAccel > stepThreshold &&
-        Date.now() - lastStepTime.current > minStepInterval
+        timeSinceLastStep > minStepInterval
       ) {
-        peakDetection.current.waiting = true;
-        lastStepTime.current = Date.now();
+        stepState.current.isInStep = true;
+        stepState.current.lastMagnitude = verticalAccel;
+      } else if (
+        stepState.current.isInStep &&
+        verticalAccel < stepThreshold * 0.5
+      ) {
+        // Detect step completion with lower threshold
+        if (timeSinceLastStep > minStepInterval) {
+          const radians = (smoothedRotation.current * Math.PI) / 180;
 
-        const radians = (smoothedRotation.current * Math.PI) / 180;
+          // More precise movement calculation
+          velocity.current.x += -Math.sin(radians) * stepSize;
+          velocity.current.y += -Math.cos(radians) * stepSize;
 
-        velocity.current.x += -Math.sin(radians) * stepSize;
-        velocity.current.y += -Math.cos(radians) * stepSize;
+          stepState.current.lastStep = now;
 
-        setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! Accel: ${verticalAccel.toFixed(
-            2
-          )}`,
-          `Direction: ${smoothedRotation.current.toFixed(1)}°`,
-          ...l.slice(0, 15),
-        ]);
-
-        setTimeout(() => {
-          peakDetection.current.waiting = false;
-        }, minStepInterval);
+          setLog((l) => [
+            `[${new Date().toLocaleTimeString()}] Step: ${verticalAccel.toFixed(
+              2
+            )}`,
+            `Dir: ${smoothedRotation.current.toFixed(1)}°`,
+            ...l.slice(0, 15),
+          ]);
+        }
+        stepState.current.isInStep = false;
       }
 
       lastEvent.current = Date.now();
@@ -134,9 +166,11 @@ export default function Geo() {
         let x = prev.x + velocity.current.x;
         let y = prev.y + velocity.current.y;
 
-        velocity.current.x *= 0.92;
-        velocity.current.y *= 0.92;
+        // Faster deceleration for more responsive stops
+        velocity.current.x *= 0.85;
+        velocity.current.y *= 0.85;
 
+        // Higher minimum velocity threshold
         if (Math.abs(velocity.current.x) < 0.1) velocity.current.x = 0;
         if (Math.abs(velocity.current.y) < 0.1) velocity.current.y = 0;
 

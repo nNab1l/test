@@ -13,11 +13,11 @@ export default function Geo() {
 
   const lastStepTime = useRef(Date.now());
 
-  // Adjusted constants for better step detection
-  const stepThreshold = 2.0; // Increased for more reliable step detection
-  const minStepInterval = 250; // Decreased for more responsive movement
-  const rotationSmoothing = 0.85;
-  const stepSize = 3; // Smaller steps for more realistic walking simulation
+  // Adjust these constants for better detection
+  const stepThreshold = 8.0; // Increased threshold
+  const minStepInterval = 300; // Slightly increased to prevent double steps
+  const rotationSmoothing = 0.85; // Keep this the same since rotation works well
+  const stepSize = 5; // Increased step size
 
   // Add acceleration smoothing with smaller window for less delay
   const accelFilter = useRef({
@@ -101,50 +101,37 @@ export default function Geo() {
     };
 
     const handleMotion = (e) => {
-      if (!e.accelerationIncludingGravity) return;
+      if (!e.acceleration) return;
 
-      // Use accelerationIncludingGravity for better step detection
-      const ax = smoothAcceleration(e.accelerationIncludingGravity.x, "x");
-      const ay = smoothAcceleration(e.accelerationIncludingGravity.y, "y");
-      const az = smoothAcceleration(e.accelerationIncludingGravity.z, "z");
+      // Use raw acceleration instead of accelerationIncludingGravity
+      const ax = e.acceleration.x || 0;
+      const ay = e.acceleration.y || 0;
+      const az = e.acceleration.z || 0;
 
-      // Focus on vertical movement for step detection
-      const verticalAccel = Math.abs(az - 9.81); // Remove gravity approximation
+      // Calculate total acceleration magnitude
+      const accelMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
 
       const now = Date.now();
       const timeSinceLastStep = now - stepState.current.lastStep;
 
-      // Improved step detection logic
-      if (
-        !stepState.current.isInStep &&
-        verticalAccel > stepThreshold &&
-        timeSinceLastStep > minStepInterval
-      ) {
-        stepState.current.isInStep = true;
-        stepState.current.lastMagnitude = verticalAccel;
-      } else if (
-        stepState.current.isInStep &&
-        verticalAccel < stepThreshold * 0.5
-      ) {
-        // Detect step completion with lower threshold
-        if (timeSinceLastStep > minStepInterval) {
-          const radians = (smoothedRotation.current * Math.PI) / 180;
+      // Step detection using magnitude threshold
+      if (accelMagnitude > stepThreshold && timeSinceLastStep > minStepInterval) {
+        // Valid step detected
+        stepState.current.lastStep = now;
 
-          // More precise movement calculation
-          velocity.current.x += -Math.sin(radians) * stepSize;
-          velocity.current.y += -Math.cos(radians) * stepSize;
+        // Calculate movement in the direction we're facing
+        const radians = (smoothedRotation.current * Math.PI) / 180;
 
-          stepState.current.lastStep = now;
+        // Update velocity - note the negative sin/cos for correct direction
+        velocity.current.x += -Math.sin(radians) * stepSize;
+        velocity.current.y += -Math.cos(radians) * stepSize;
 
-          setLog((l) => [
-            `[${new Date().toLocaleTimeString()}] Step: ${verticalAccel.toFixed(
-              2
-            )}`,
-            `Dir: ${smoothedRotation.current.toFixed(1)}°`,
-            ...l.slice(0, 15),
-          ]);
-        }
-        stepState.current.isInStep = false;
+        // Log step for debugging
+        setLog((l) => [
+          `[${new Date().toLocaleTimeString()}] Step! Accel: ${accelMagnitude.toFixed(2)}`,
+          `Heading: ${smoothedRotation.current.toFixed(1)}°`,
+          ...l.slice(0, 15),
+        ]);
       }
 
       lastEvent.current = Date.now();
@@ -166,13 +153,13 @@ export default function Geo() {
         let x = prev.x + velocity.current.x;
         let y = prev.y + velocity.current.y;
 
-        // Faster deceleration for more responsive stops
-        velocity.current.x *= 0.85;
-        velocity.current.y *= 0.85;
+        // Gentler deceleration
+        velocity.current.x *= 0.9;
+        velocity.current.y *= 0.9;
 
-        // Higher minimum velocity threshold
-        if (Math.abs(velocity.current.x) < 0.1) velocity.current.x = 0;
-        if (Math.abs(velocity.current.y) < 0.1) velocity.current.y = 0;
+        // Lower threshold for stopping
+        if (Math.abs(velocity.current.x) < 0.05) velocity.current.x = 0;
+        if (Math.abs(velocity.current.y) < 0.05) velocity.current.y = 0;
 
         const maxX = window.innerWidth / 2 - 20;
         const maxY = window.innerHeight / 2 - 20;

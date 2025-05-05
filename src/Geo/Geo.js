@@ -13,13 +13,18 @@ export default function Geo() {
 
   const lastStepTime = useRef(Date.now());
 
-  const stepThreshold = 10; 
-  const minStepInterval = 250; 
-  const rotationSmoothing = 0.85; 
-  const stepSize = 8;
+  const stepThreshold = 2.5; // Lowered threshold significantly
+  const minStepInterval = 250; // Keep same interval
+  const rotationSmoothing = 0.85; // Keep rotation smoothing since it works
+  const stepSize = 10; // Increased step size for more noticeable movement
 
   const rawAccel = useRef({ x: 0, y: 0, z: 0 });
   const lastRawAccel = useRef({ x: 0, y: 0, z: 0 });
+
+  const peakDetection = useRef({
+    lastPeak: 0,
+    waiting: false,
+  });
 
   const requestIMU = async () => {
     try {
@@ -32,14 +37,14 @@ export default function Geo() {
         typeof DeviceMotionEvent.requestPermission === "function"
       ) {
         motionResult = await DeviceMotionEvent.requestPermission();
-        granted = granted && (motionResult === "granted");
+        granted = granted && motionResult === "granted";
       }
       if (
         typeof DeviceOrientationEvent !== "undefined" &&
         typeof DeviceOrientationEvent.requestPermission === "function"
       ) {
         orientationResult = await DeviceOrientationEvent.requestPermission();
-        granted = granted && (orientationResult === "granted");
+        granted = granted && orientationResult === "granted";
       }
       setPermissionRequested(true);
       if (!granted) {
@@ -82,39 +87,32 @@ export default function Geo() {
     const handleMotion = (e) => {
       if (!e.acceleration) return;
 
-      const ax = e.acceleration.x ?? 0;
-      const ay = e.acceleration.y ?? 0;
-      const az = e.acceleration.z ?? 0;
-
-      lastRawAccel.current = { ...rawAccel.current };
-      rawAccel.current = { x: ax, y: ay, z: az };
-
-      const deltaAx = ax - lastRawAccel.current.x;
-      const deltaAy = ay - lastRawAccel.current.y;
-      const deltaAz = az - lastRawAccel.current.z;
-
-      const accelMagnitude = Math.sqrt(
-        deltaAx * deltaAx + deltaAy * deltaAy + deltaAz * deltaAz
-      );
+      const verticalAccel = Math.abs(e.acceleration.y);
 
       if (
-        accelMagnitude > stepThreshold &&
+        !peakDetection.current.waiting &&
+        verticalAccel > stepThreshold &&
         Date.now() - lastStepTime.current > minStepInterval
       ) {
+        peakDetection.current.waiting = true;
         lastStepTime.current = Date.now();
 
         const radians = (smoothedRotation.current * Math.PI) / 180;
 
-        velocity.current.x += Math.sin(radians) * stepSize;
-        velocity.current.y += Math.cos(radians) * stepSize;
+        velocity.current.x += -Math.sin(radians) * stepSize;
+        velocity.current.y += -Math.cos(radians) * stepSize;
 
         setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! Magnitude: ${accelMagnitude.toFixed(
+          `[${new Date().toLocaleTimeString()}] Step! Accel: ${verticalAccel.toFixed(
             2
           )}`,
-          `Rotation: ${smoothedRotation.current.toFixed(1)}°`,
+          `Direction: ${smoothedRotation.current.toFixed(1)}°`,
           ...l.slice(0, 15),
         ]);
+
+        setTimeout(() => {
+          peakDetection.current.waiting = false;
+        }, minStepInterval);
       }
 
       lastEvent.current = Date.now();
@@ -136,11 +134,11 @@ export default function Geo() {
         let x = prev.x + velocity.current.x;
         let y = prev.y + velocity.current.y;
 
-        velocity.current.x *= 0.95;
-        velocity.current.y *= 0.95;
+        velocity.current.x *= 0.92;
+        velocity.current.y *= 0.92;
 
-        if (Math.abs(velocity.current.x) < 0.05) velocity.current.x = 0;
-        if (Math.abs(velocity.current.y) < 0.05) velocity.current.y = 0;
+        if (Math.abs(velocity.current.x) < 0.1) velocity.current.x = 0;
+        if (Math.abs(velocity.current.y) < 0.1) velocity.current.y = 0;
 
         const maxX = window.innerWidth / 2 - 20;
         const maxY = window.innerHeight / 2 - 20;

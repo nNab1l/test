@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import Map from '../map/Map';
 
 export default function Geo() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -216,6 +217,7 @@ export default function Geo() {
         touchAction: "none",
       }}
     >
+    <Map/>
       {typeof DeviceMotionEvent !== "undefined" &&
         typeof DeviceMotionEvent.requestPermission === "function" &&
         !permissionRequested && (

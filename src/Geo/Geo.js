@@ -4,6 +4,7 @@ export default function Geo() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const velocity = useRef({ x: 0, y: 0 });
   const [rotation, setRotation] = useState({ alpha: 0 });
+  const smoothedRotation = useRef(0);
   const [imuActive, setImuActive] = useState(false);
   const [log, setLog] = useState([]);
   const lastEvent = useRef(Date.now());
@@ -12,11 +13,13 @@ export default function Geo() {
 
   const lastStepTime = useRef(Date.now());
 
-  const stepThreshold = 15; // Increased threshold
-  const minStepInterval = 300; // Decreased interval for more responsive detection
-  const lowPassFilter = 0.8; // For smoothing acceleration readings
-  const lastAccel = useRef({ x: 0, y: 0, z: 0 });
-  const filteredAccel = useRef({ x: 0, y: 0, z: 0 });
+  const stepThreshold = 10; 
+  const minStepInterval = 250; 
+  const rotationSmoothing = 0.85; 
+  const stepSize = 8;
+
+  const rawAccel = useRef({ x: 0, y: 0, z: 0 });
+  const lastRawAccel = useRef({ x: 0, y: 0, z: 0 });
 
   const requestIMU = async () => {
     try {
@@ -58,62 +61,62 @@ export default function Geo() {
 
   useEffect(() => {
     const handleOrientation = (e) => {
-      // Only update rotation if the device is relatively level
-      if (e.beta && e.gamma) {
-        const isLevel = Math.abs(e.beta) < 25 && Math.abs(e.gamma) < 25;
-        if (isLevel) {
-          const compassHeading = e.webkitCompassHeading ?? (360 - e.alpha);
-          setRotation((prev) => ({
-            alpha: compassHeading ?? prev.alpha,
-          }));
-        }
+      if (!e || e.alpha == null) return;
+
+      let newAngle;
+      if (e.webkitCompassHeading != null) {
+        newAngle = e.webkitCompassHeading;
+      } else {
+        newAngle = 360 - e.alpha;
       }
+
+      smoothedRotation.current =
+        smoothedRotation.current * rotationSmoothing +
+        newAngle * (1 - rotationSmoothing);
+
+      setRotation({ alpha: smoothedRotation.current });
       lastEvent.current = Date.now();
       setImuActive(true);
     };
 
     const handleMotion = (e) => {
-      if (!e.accelerationIncludingGravity) return;
+      if (!e.acceleration) return;
 
-      const ax = e.accelerationIncludingGravity.x ?? 0;
-      const ay = e.accelerationIncludingGravity.y ?? 0;
-      const az = e.accelerationIncludingGravity.z ?? 0;
+      const ax = e.acceleration.x ?? 0;
+      const ay = e.acceleration.y ?? 0;
+      const az = e.acceleration.z ?? 0;
 
-      // Apply low-pass filter to smooth acceleration values
-      filteredAccel.current = {
-        x: ax * (1 - lowPassFilter) + filteredAccel.current.x * lowPassFilter,
-        y: ay * (1 - lowPassFilter) + filteredAccel.current.y * lowPassFilter,
-        z: az * (1 - lowPassFilter) + filteredAccel.current.z * lowPassFilter,
-      };
+      lastRawAccel.current = { ...rawAccel.current };
+      rawAccel.current = { x: ax, y: ay, z: az };
 
-      // Calculate vertical acceleration change (for step detection)
-      const verticalAccel = Math.abs(
-        filteredAccel.current.z - lastAccel.current.z
+      const deltaAx = ax - lastRawAccel.current.x;
+      const deltaAy = ay - lastRawAccel.current.y;
+      const deltaAz = az - lastRawAccel.current.z;
+
+      const accelMagnitude = Math.sqrt(
+        deltaAx * deltaAx + deltaAy * deltaAy + deltaAz * deltaAz
       );
 
       if (
-        verticalAccel > stepThreshold &&
+        accelMagnitude > stepThreshold &&
         Date.now() - lastStepTime.current > minStepInterval
       ) {
         lastStepTime.current = Date.now();
 
-        // Move forward in the direction of the compass heading
-        const radians = (rotation.alpha * Math.PI) / 180;
-        const stepSize = 5;
+        const radians = (smoothedRotation.current * Math.PI) / 180;
 
-        // Invert sin/cos for correct direction mapping
-        velocity.current.x += -Math.sin(radians) * stepSize;
-        velocity.current.y += -Math.cos(radians) * stepSize;
+        velocity.current.x += Math.sin(radians) * stepSize;
+        velocity.current.y += Math.cos(radians) * stepSize;
 
         setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! Accel: ${verticalAccel.toFixed(
+          `[${new Date().toLocaleTimeString()}] Step! Magnitude: ${accelMagnitude.toFixed(
             2
           )}`,
+          `Rotation: ${smoothedRotation.current.toFixed(1)}°`,
           ...l.slice(0, 15),
         ]);
       }
 
-      lastAccel.current = filteredAccel.current;
       lastEvent.current = Date.now();
       setImuActive(true);
     };
@@ -133,13 +136,11 @@ export default function Geo() {
         let x = prev.x + velocity.current.x;
         let y = prev.y + velocity.current.y;
 
-        // Stronger friction for quicker stopping
-        velocity.current.x *= 0.8;
-        velocity.current.y *= 0.8;
+        velocity.current.x *= 0.95;
+        velocity.current.y *= 0.95;
 
-        // Stop completely if velocity is very small
-        if (Math.abs(velocity.current.x) < 0.01) velocity.current.x = 0;
-        if (Math.abs(velocity.current.y) < 0.01) velocity.current.y = 0;
+        if (Math.abs(velocity.current.x) < 0.05) velocity.current.x = 0;
+        if (Math.abs(velocity.current.y) < 0.05) velocity.current.y = 0;
 
         const maxX = window.innerWidth / 2 - 20;
         const maxY = window.innerHeight / 2 - 20;
@@ -159,7 +160,7 @@ export default function Geo() {
       window.removeEventListener("devicemotion", handleMotion, true);
       cancelAnimationFrame(animationId);
     };
-  }, [permissionRequested, rotation.alpha]);
+  }, [permissionRequested]);
 
   const info = [
     `IMU active: ${imuActive ? "YES" : "NO (no events in 2s)"}`,

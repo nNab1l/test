@@ -104,22 +104,27 @@ export default function Geo() {
       if (!e.accelerationIncludingGravity) return;
 
       // High-pass filter for vertical acceleration (z)
-      const alpha = 0.8; // filter constant, 0.8 is good for walking
-      if (!stepState.current.hpZ) stepState.current.hpZ = 0;
+      const alpha = 0.8;
+      if (typeof stepState.current.hpZ !== "number") stepState.current.hpZ = 0;
+      if (typeof stepState.current.lastHpZ !== "number") stepState.current.lastHpZ = 0;
       const rawZ = e.accelerationIncludingGravity.z || 0;
-      // Remove gravity (approx 9.81), then high-pass filter
-      const filteredZ = alpha * (stepState.current.hpZ || 0) + (1 - alpha) * (rawZ - 9.81);
+      const filteredZ = alpha * stepState.current.hpZ + (1 - alpha) * (rawZ - 9.81);
       stepState.current.hpZ = filteredZ;
 
       const now = Date.now();
       const timeSinceLastStep = now - stepState.current.lastStep;
 
+      // Log filteredZ for debugging
+      setLog((l) => [
+        `[${new Date().toLocaleTimeString()}] hpZ: ${filteredZ.toFixed(3)}`,
+        ...l.slice(0, 15),
+      ]);
+
       // Detect step: look for positive zero-crossing (from negative to positive)
       if (
-        stepState.current.lastHpZ !== undefined &&
         stepState.current.lastHpZ < 0 &&
         filteredZ >= 0 &&
-        Math.abs(filteredZ) > 0.2 && // minimum amplitude for a step
+        Math.abs(filteredZ) > 0.05 && // much lower threshold
         timeSinceLastStep > minStepInterval
       ) {
         // Step detected
@@ -129,7 +134,7 @@ export default function Geo() {
         stepState.current.lastStep = now;
 
         setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! hpZ: ${filteredZ.toFixed(2)}`,
+          `[${new Date().toLocaleTimeString()}] STEP! hpZ: ${filteredZ.toFixed(3)}`,
           ...l.slice(0, 15),
         ]);
       }

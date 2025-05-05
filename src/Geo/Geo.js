@@ -10,6 +10,8 @@ export default function Geo() {
   const [permissionRequested, setPermissionRequested] = useState(false);
   const [permissionError, setPermissionError] = useState("");
 
+  const lastStepTime = useRef(Date.now());
+
   const stepThreshold = 15; // Increased threshold
   const minStepInterval = 300; // Decreased interval for more responsive detection
   const lowPassFilter = 0.8; // For smoothing acceleration readings

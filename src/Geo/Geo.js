@@ -103,46 +103,37 @@ export default function Geo() {
     const handleMotion = (e) => {
       if (!e.accelerationIncludingGravity) return;
 
-      const ax = e.accelerationIncludingGravity.x || 0;
-      const ay = e.accelerationIncludingGravity.y || 0;
-      const az = e.accelerationIncludingGravity.z || 0;
-
-      // Smooth acceleration values
-      const smoothX = smoothAcceleration(ax, "x");
-      const smoothY = smoothAcceleration(ay, "y");
-      const smoothZ = smoothAcceleration(az, "z");
-
-      // Calculate total acceleration magnitude
-      const accelMagnitude = Math.sqrt(
-        smoothX * smoothX + smoothY * smoothY + smoothZ * smoothZ
-      );
-
-      // Remove gravity component
-      const magnitude = Math.abs(accelMagnitude - 9.81);
+      // High-pass filter for vertical acceleration (z)
+      const alpha = 0.8; // filter constant, 0.8 is good for walking
+      if (!stepState.current.hpZ) stepState.current.hpZ = 0;
+      const rawZ = e.accelerationIncludingGravity.z || 0;
+      // Remove gravity (approx 9.81), then high-pass filter
+      const filteredZ = alpha * (stepState.current.hpZ || 0) + (1 - alpha) * (rawZ - 9.81);
+      stepState.current.hpZ = filteredZ;
 
       const now = Date.now();
       const timeSinceLastStep = now - stepState.current.lastStep;
 
-      // Simplified step detection
-      if (magnitude > stepThreshold && timeSinceLastStep > minStepInterval) {
-        // Step detected - move in facing direction
+      // Detect step: look for positive zero-crossing (from negative to positive)
+      if (
+        stepState.current.lastHpZ !== undefined &&
+        stepState.current.lastHpZ < 0 &&
+        filteredZ >= 0 &&
+        Math.abs(filteredZ) > 0.2 && // minimum amplitude for a step
+        timeSinceLastStep > minStepInterval
+      ) {
+        // Step detected
         const radians = (smoothedRotation.current * Math.PI) / 180;
-
-        // Update velocity
         velocity.current.x += -Math.sin(radians) * stepSize;
         velocity.current.y += -Math.cos(radians) * stepSize;
-
         stepState.current.lastStep = now;
 
-        // Log for debugging
         setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! Mag: ${magnitude.toFixed(
-            2
-          )}`,
-          `Direction: ${smoothedRotation.current.toFixed(1)}°`,
+          `[${new Date().toLocaleTimeString()}] Step! hpZ: ${filteredZ.toFixed(2)}`,
           ...l.slice(0, 15),
         ]);
       }
+      stepState.current.lastHpZ = filteredZ;
 
       lastEvent.current = Date.now();
       setImuActive(true);

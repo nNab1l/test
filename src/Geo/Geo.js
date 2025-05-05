@@ -13,11 +13,11 @@ export default function Geo() {
 
   const lastStepTime = useRef(Date.now());
 
-  // Adjust these constants for better detection
-  const stepThreshold = 8.0; // Increased threshold
-  const minStepInterval = 300; // Slightly increased to prevent double steps
-  const rotationSmoothing = 0.85; // Keep this the same since rotation works well
-  const stepSize = 5; // Increased step size
+  // Adjust these constants for walking detection
+  const stepThreshold = 1.2; // Lowered threshold for walking detection
+  const minStepInterval = 250; // Slightly decreased for natural walking pace
+  const rotationSmoothing = 0.85;
+  const stepSize = 3; // Smaller steps for more natural movement
 
   // Add acceleration smoothing with smaller window for less delay
   const accelFilter = useRef({
@@ -101,37 +101,56 @@ export default function Geo() {
     };
 
     const handleMotion = (e) => {
-      if (!e.acceleration) return;
+      if (!e.accelerationIncludingGravity) return;
 
-      // Use raw acceleration instead of accelerationIncludingGravity
-      const ax = e.acceleration.x || 0;
-      const ay = e.acceleration.y || 0;
-      const az = e.acceleration.z || 0;
+      // Use accelerationIncludingGravity for better walking detection
+      const ax = e.accelerationIncludingGravity.x || 0;
+      const ay = e.accelerationIncludingGravity.y || 0;
+      const az = e.accelerationIncludingGravity.z || 0;
 
-      // Calculate total acceleration magnitude
-      const accelMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
+      // Smooth the acceleration values
+      const smoothX = smoothAcceleration(ax, "x");
+      const smoothY = smoothAcceleration(ay, "y");
+      const smoothZ = smoothAcceleration(az, "z");
+
+      // Calculate vertical acceleration change (removing gravity)
+      const verticalAccel = Math.abs(smoothZ - 9.81);
 
       const now = Date.now();
       const timeSinceLastStep = now - stepState.current.lastStep;
 
-      // Step detection using magnitude threshold
-      if (accelMagnitude > stepThreshold && timeSinceLastStep > minStepInterval) {
-        // Valid step detected
-        stepState.current.lastStep = now;
+      // Detect walking pattern using vertical acceleration
+      if (
+        !stepState.current.isInStep &&
+        verticalAccel > stepThreshold &&
+        timeSinceLastStep > minStepInterval
+      ) {
+        // Start of step
+        stepState.current.isInStep = true;
+        stepState.current.lastMagnitude = verticalAccel;
+      } else if (
+        stepState.current.isInStep &&
+        verticalAccel < stepThreshold * 0.5
+      ) {
+        // End of step - move in facing direction
+        if (timeSinceLastStep > minStepInterval) {
+          const radians = (smoothedRotation.current * Math.PI) / 180;
 
-        // Calculate movement in the direction we're facing
-        const radians = (smoothedRotation.current * Math.PI) / 180;
+          // Update velocity with facing direction
+          velocity.current.x += -Math.sin(radians) * stepSize;
+          velocity.current.y += -Math.cos(radians) * stepSize;
 
-        // Update velocity - note the negative sin/cos for correct direction
-        velocity.current.x += -Math.sin(radians) * stepSize;
-        velocity.current.y += -Math.cos(radians) * stepSize;
+          stepState.current.lastStep = now;
 
-        // Log step for debugging
-        setLog((l) => [
-          `[${new Date().toLocaleTimeString()}] Step! Accel: ${accelMagnitude.toFixed(2)}`,
-          `Heading: ${smoothedRotation.current.toFixed(1)}°`,
-          ...l.slice(0, 15),
-        ]);
+          setLog((l) => [
+            `[${new Date().toLocaleTimeString()}] Step! Accel: ${verticalAccel.toFixed(
+              2
+            )}`,
+            `Heading: ${smoothedRotation.current.toFixed(1)}°`,
+            ...l.slice(0, 15),
+          ]);
+        }
+        stepState.current.isInStep = false;
       }
 
       lastEvent.current = Date.now();

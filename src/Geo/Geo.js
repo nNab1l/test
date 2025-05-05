@@ -133,13 +133,13 @@ export default function Geo() {
       if (
         stepState.current.lastHpZ < 0 &&
         filteredZ >= 0 &&
-        Math.abs(filteredZ) > 0.001 && // ultra-low threshold
-        timeSinceLastStep > minStepInterval
+        Math.abs(filteredZ) > 0.002 && // increased threshold
+        timeSinceLastStep > 400 // increased minStepInterval
       ) {
         // Step detected
         const radians = (smoothedRotation.current * Math.PI) / 180;
-        velocity.current.x += -Math.sin(radians) * stepSize;
-        velocity.current.y += -Math.cos(radians) * stepSize;
+        velocity.current.x += -Math.sin(radians) * 1; // reduced stepSize
+        velocity.current.y += -Math.cos(radians) * 1; // reduced stepSize
         stepState.current.lastStep = now;
 
         setLog((l) => [
